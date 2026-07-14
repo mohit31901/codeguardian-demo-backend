@@ -5,3 +5,6 @@ venv/
 # .env
 *.db
 *.idea
+.coverage
+coverage.xml
+htmlcov/

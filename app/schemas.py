@@ -32,6 +32,9 @@ class UserResponse(BaseModel):
     Status: Status
     User: UserBaseSchema
 
+class UserCountResponse(BaseModel):
+    status: Status
+    total: int
 
 class GetUserResponse(BaseModel):
     Status: Status

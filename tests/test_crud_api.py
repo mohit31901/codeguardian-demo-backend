@@ -104,3 +104,14 @@ def test_update_user_doesnt_exist(test_client, user_id, user_payload_updated):
     assert response.status_code == 404
     response_json = response.json()
     assert response_json["detail"] == f"No User with this id: `{user_id}` found"
+
+def test_get_user_count(test_client, user_payload):
+    response = test_client.get("/api/users/count")
+    assert response.status_code == 200
+    assert response.json()["total"] == 0
+
+    test_client.post("/api/users/", json=user_payload)
+
+    response = test_client.get("/api/users/count")
+    assert response.status_code == 200
+    assert response.json()["total"] == 1

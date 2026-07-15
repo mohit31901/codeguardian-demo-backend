@@ -39,6 +39,12 @@ def create_user(payload: schemas.UserBaseSchema, db: Session = Depends(get_db)):
     # Return the successful creation response
     return schemas.UserResponse(Status=schemas.Status.Success, User=user_schema)
 
+@router.get(
+    "/count", status_code=status.HTTP_200_OK, response_model=schemas.UserCountResponse
+)
+def get_user_count(db: Session = Depends(get_db)):
+    total = db.query(models.User).count()
+    return schemas.UserCountResponse(status=schemas.Status.Success, total=total)
 
 @router.get(
     "/{userId}", status_code=status.HTTP_200_OK, response_model=schemas.GetUserResponse

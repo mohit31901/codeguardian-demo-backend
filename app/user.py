@@ -147,3 +147,10 @@ def get_users(
     return schemas.ListUserResponse(
         status=schemas.Status.Success, results=len(users), users=users
     )
+
+@router.get(
+    "/count", status_code=status.HTTP_200_OK, response_model=schemas.UserCountResponse
+)
+def get_user_count(db: Session = Depends(get_db)):
+    total = db.query(models.User).count()
+    return schemas.UserCountResponse(status=schemas.Status.Success, total=total)

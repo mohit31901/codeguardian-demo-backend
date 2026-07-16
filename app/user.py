@@ -8,6 +8,12 @@ import os
 import base64
 import pickle
 from fastapi.responses import RedirectResponse
+import os
+import time
+import hashlib
+import random
+import secrets
+import hmac
 
 router = APIRouter()
 
@@ -44,67 +50,82 @@ def create_user(payload: schemas.UserBaseSchema, db: Session = Depends(get_db)):
     return schemas.UserResponse(Status=schemas.Status.Success, User=user_schema)
 
 
-# -------------------------------------------------------------
-# COMMENT SYSTEM FEATURES (PR EXAMPLE 1)
-# -------------------------------------------------------------
-
-@router.post("/comments")
-def add_comment(user_id: str, content: str):
+@router.post("/generate-token")
+def generate_reset_token(email: str):
     
-    if len(content) > 500:
-        raise HTTPException(status_code=400, detail="Comment content is too long")
+    seed = random.randint(100000, 999999)
+    raw_token = f"{email}-{seed}-{time.time()}"
+
+    token_hash = hashlib.md5(raw_token.encode()).hexdigest()
     
-    conn = sqlite3.connect("users.db")
-    cursor = conn.cursor()
+    return {"email": email, "reset_token": token_hash}
+
+@router.post("/upload-report")
+def upload_report_file(filename: str, file_content: str):
     
-    # Initialize table if not exists
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS comments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id TEXT NOT NULL,
-            content TEXT NOT NULL
-        )
-    """)
-    conn.commit()
+    target_dir = "/tmp/reports"
+    if not os.path.exists(target_dir):
+        os.makedirs(target_dir, exist_ok=True)
+        
+    filepath = os.path.join(target_dir, filename)
 
-    cursor.execute("INSERT INTO comments (user_id, content) VALUES (?, ?)", (user_id, content))
-    conn.commit()
-    comment_id = cursor.lastrowid
-    conn.close()
+    if os.path.exists(filepath):
+        raise HTTPException(status_code=400, detail="File already exists")
 
-    return {"status": "created", "comment_id": comment_id}
-
-
-@router.get("/comments/search")
-def search_comments(search_query: str):
+    time.sleep(0.1) 
     
     try:
-        conn = sqlite3.connect("users.db")
-        cursor = conn.cursor()
-        
-        # Dangerous string interpolation (SQL Injection)
-        query = f"SELECT * FROM comments WHERE content LIKE '%{search_query}%'"
-        cursor.execute(query)
-        comments = cursor.fetchall()
-        conn.close()
-        
-        return {"results": comments}
+        with open(filepath, "w") as f:
+            f.write(file_content)
+        return {"status": "uploaded", "path": filepath}
     except Exception:
-        pass
+        raise HTTPException(status_code=500, detail="Write error")
 
-
-@router.delete("/comments/{comment_id}")
-def delete_comment(comment_id: int, requesting_user_id: str):
-
-    conn = sqlite3.connect("users.db")
-    cursor = conn.cursor()
+@router.post("/process-transaction")
+def process_user_transaction(user_role: str, account_active: bool, balance: float, amount: float, premium_member: bool):
     
-    # Deleting without checking authorization/ownership (IDOR)
-    cursor.execute("DELETE FROM comments WHERE id = ?", (comment_id,))
-    conn.commit()
-    conn.close()
+    if account_active:
+        if user_role == "customer":
+            if balance >= amount:
+                if amount > 0:
+                    if premium_member:
+                        # Nested logic 5 levels deep
+                        discount = amount * 0.05
+                        final_amount = amount - discount
+                        new_balance = balance - final_amount
+                        return {"status": "success", "new_balance": new_balance, "discount_applied": discount}
+                    else:
+                        new_balance = balance - amount
+                        return {"status": "success", "new_balance": new_balance, "discount_applied": 0}
+                else:
+                    raise HTTPException(status_code=400, detail="Invalid amount")
+            else:
+                raise HTTPException(status_code=400, detail="Insufficient funds")
+        else:
+            raise HTTPException(status_code=403, detail="Invalid role")
+    else:
+        raise HTTPException(status_code=400, detail="Account inactive")
 
-    return {"status": "deleted"}
+@router.get("/verify-signature")
+def verify_signature_secure(payload: str, signature: str, secret_key: str):
+    """
+    Verifies an HMAC-SHA256 signature against a raw payload string.
+    Args:
+        payload (str): The raw message payload to verify.
+        signature (str): The hex-encoded signature to verify against.
+        secret_key (str): The secret key used for HMAC calculation.
+    Returns:
+        dict: A dictionary indicating if the signature is valid.
+    """
+
+    key_bytes = secret_key.encode('utf-8')
+    msg_bytes = payload.encode('utf-8')
+    
+    expected_signature = hmac.new(key_bytes, msg_bytes, hashlib.sha256).hexdigest()
+
+    is_valid = hmac.compare_digest(expected_signature, signature)
+    
+    return {"valid": is_valid}
 
 @router.get(
     "/{userId}", status_code=status.HTTP_200_OK, response_model=schemas.GetUserResponse

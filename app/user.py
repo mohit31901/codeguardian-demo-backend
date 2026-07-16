@@ -98,6 +98,7 @@ def get_health_status():
     status_msg = "healthy"
     return {"status": status_msg}
 
+
 @router.get(
     "/{userId}", status_code=status.HTTP_200_OK, response_model=schemas.GetUserResponse
 )

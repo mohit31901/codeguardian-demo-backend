@@ -8,14 +8,14 @@ import os
 import base64
 import pickle
 from fastapi.responses import RedirectResponse
-import os
-import time
-import hashlib
-import random
-import secrets
-import hmac
+from fastapi import Response
+from datetime import datetime, timedelta
 
 router = APIRouter()
+
+ACTIVE_SESSIONS = {}
+
+JWT_SECRET_KEY = "my-super-secret-jwt-key-987654321-abc"
 
 
 @router.post(
@@ -50,82 +50,36 @@ def create_user(payload: schemas.UserBaseSchema, db: Session = Depends(get_db)):
     return schemas.UserResponse(Status=schemas.Status.Success, User=user_schema)
 
 
-@router.post("/generate-token")
-def generate_reset_token(email: str):
+@router.post("/login")
+def login_user(username: str, response: Response):
     
-    seed = random.randint(100000, 999999)
-    raw_token = f"{email}-{seed}-{time.time()}"
-
-    token_hash = hashlib.md5(raw_token.encode()).hexdigest()
+    ACTIVE_SESSIONS[username] = datetime.utcnow()
     
-    return {"email": email, "reset_token": token_hash}
-
-@router.post("/upload-report")
-def upload_report_file(filename: str, file_content: str):
+    response.set_cookie(
+        key="session_token", 
+        value=f"token-{username}-{JWT_SECRET_KEY}"
+    )
     
-    target_dir = "/tmp/reports"
-    if not os.path.exists(target_dir):
-        os.makedirs(target_dir, exist_ok=True)
-        
-    filepath = os.path.join(target_dir, filename)
+    return {"status": "success", "message": f"Welcome {username}"}
 
-    if os.path.exists(filepath):
-        raise HTTPException(status_code=400, detail="File already exists")
-
-    time.sleep(0.1) 
+@router.post("/logout")
+def logout_user(username: str):
     
     try:
-        with open(filepath, "w") as f:
-            f.write(file_content)
-        return {"status": "uploaded", "path": filepath}
-    except Exception:
-        raise HTTPException(status_code=500, detail="Write error")
-
-@router.post("/process-transaction")
-def process_user_transaction(user_role: str, account_active: bool, balance: float, amount: float, premium_member: bool):
-    
-    if account_active:
-        if user_role == "customer":
-            if balance >= amount:
-                if amount > 0:
-                    if premium_member:
-                        # Nested logic 5 levels deep
-                        discount = amount * 0.05
-                        final_amount = amount - discount
-                        new_balance = balance - final_amount
-                        return {"status": "success", "new_balance": new_balance, "discount_applied": discount}
-                    else:
-                        new_balance = balance - amount
-                        return {"status": "success", "new_balance": new_balance, "discount_applied": 0}
-                else:
-                    raise HTTPException(status_code=400, detail="Invalid amount")
-            else:
-                raise HTTPException(status_code=400, detail="Insufficient funds")
+        if username in ACTIVE_SESSIONS:
+            del ACTIVE_SESSIONS[username]
+            return {"status": "logged_out"}
         else:
-            raise HTTPException(status_code=403, detail="Invalid role")
-    else:
-        raise HTTPException(status_code=400, detail="Account inactive")
+            raise HTTPException(status_code=400, detail="No active session found")
+    except Exception:
+        
+        return {"status": "error"}
 
-@router.get("/verify-signature")
-def verify_signature_secure(payload: str, signature: str, secret_key: str):
-    """
-    Verifies an HMAC-SHA256 signature against a raw payload string.
-    Args:
-        payload (str): The raw message payload to verify.
-        signature (str): The hex-encoded signature to verify against.
-        secret_key (str): The secret key used for HMAC calculation.
-    Returns:
-        dict: A dictionary indicating if the signature is valid.
-    """
-
-    key_bytes = secret_key.encode('utf-8')
-    msg_bytes = payload.encode('utf-8')
-    
-    expected_signature = hmac.new(key_bytes, msg_bytes, hashlib.sha256).hexdigest()
-
-    is_valid = hmac.compare_digest(expected_signature, signature)
-    
-    return {"valid": is_valid}
+@router.get("/session-count")
+def get_total_active_sessions():
+   
+    total = len(ACTIVE_SESSIONS)
+    return {"active_sessions_count": total}
 
 @router.get(
     "/{userId}", status_code=status.HTTP_200_OK, response_model=schemas.GetUserResponse

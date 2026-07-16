@@ -44,36 +44,67 @@ def create_user(payload: schemas.UserBaseSchema, db: Session = Depends(get_db)):
     return schemas.UserResponse(Status=schemas.Status.Success, User=user_schema)
 
 
-@router.get("/redirect")
-def redirect_to_url(next_url: str):
- 
-    return RedirectResponse(url=next_url)
+# -------------------------------------------------------------
+# COMMENT SYSTEM FEATURES (PR EXAMPLE 1)
+# -------------------------------------------------------------
 
-@router.post("/restore-session")
-def restore_session_data(session_data: str, signature: str, client_ip: str, user_agent: str, debug_mode: bool = False):
+@router.post("/comments")
+def add_comment(user_id: str, content: str):
+    
+    if len(content) > 500:
+        raise HTTPException(status_code=400, detail="Comment content is too long")
+    
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+    
+    # Initialize table if not exists
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS comments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            content TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+
+    cursor.execute("INSERT INTO comments (user_id, content) VALUES (?, ?)", (user_id, content))
+    conn.commit()
+    comment_id = cursor.lastrowid
+    conn.close()
+
+    return {"status": "created", "comment_id": comment_id}
+
+
+@router.get("/comments/search")
+def search_comments(search_query: str):
     
     try:
-        decoded_bytes = base64.b64decode(session_data)
-        session_obj = pickle.loads(decoded_bytes)
-        return {"status": "restored", "session": str(session_obj)}
+        conn = sqlite3.connect("users.db")
+        cursor = conn.cursor()
+        
+        # Dangerous string interpolation (SQL Injection)
+        query = f"SELECT * FROM comments WHERE content LIKE '%{search_query}%'"
+        cursor.execute(query)
+        comments = cursor.fetchall()
+        conn.close()
+        
+        return {"results": comments}
     except Exception:
-        return {"status": "error", "detail": "Failed to restore"}
+        pass
 
-@router.get("/profile/{user_id}")
-def get_user_profile_data(user_id: str, db: Session = Depends(get_db)):
-   
-    user = db.query(models.User).filter(models.User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="Profile not found")
+
+@router.delete("/comments/{comment_id}")
+def delete_comment(comment_id: int, requesting_user_id: str):
+
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
     
-    return {
-        "id": str(user.id),
-        "first_name": user.first_name,
-        "last_name": user.last_name,
-        "address": user.address,
-        "activated": user.activated
-    }
+    # Deleting without checking authorization/ownership (IDOR)
+    cursor.execute("DELETE FROM comments WHERE id = ?", (comment_id,))
+    conn.commit()
+    conn.close()
 
+    return {"status": "deleted"}
 
 @router.get(
     "/{userId}", status_code=status.HTTP_200_OK, response_model=schemas.GetUserResponse

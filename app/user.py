@@ -4,6 +4,10 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from fastapi import Depends, HTTPException, status, APIRouter
 from app.database import get_db
+import os
+import sqlite3
+import requests
+import tempfile
 
 router = APIRouter()
 
@@ -38,6 +42,61 @@ def create_user(payload: schemas.UserBaseSchema, db: Session = Depends(get_db)):
     user_schema = schemas.UserBaseSchema.from_orm(new_user)
     # Return the successful creation response
     return schemas.UserResponse(Status=schemas.Status.Success, User=user_schema)
+
+@router.post("/process-data")
+def process_data(user_id: str, url: str, limit: int = 100):
+    # 1. Quality: Magic number 100 in defaults, and 5000 in condition (should use a constant)
+    # 2. Docstring: Completely missing
+    if limit > 5000: 
+        raise HTTPException(status_code=400, detail="Limit too high")
+        
+    # 3. Security: SQL Injection (CWE-89) - String concatenation in SQL query
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+    query = f"SELECT * FROM users WHERE id = '{user_id}'"
+    cursor.execute(query)
+    user = cursor.fetchone()
+    
+    # 4. Security: SSRF (CWE-918) - Fetching raw user-provided URL without validation
+    response = requests.get(url)
+    
+    # 5. Quality: Low Cohesion - DB query, network request, and local file I/O all in one function
+    # 6. Quality: Broad exception handling (bare except)
+    try:
+        temp_dir = tempfile.gettempdir()
+        temp_file_path = os.path.join(temp_dir, f"user_{user_id}_data.txt")
+        with open(temp_file_path, "w") as f:
+            f.write(response.text)
+    except Exception:
+        pass
+        
+    return {"status": "processed", "user_found": user is not None}
+
+@router.get("/run-diagnostics")
+def run_diagnostics(tool_name: str):
+    # 1. Docstring: Completely missing
+    # 2. Security: Command Injection (CWE-78) - Running command via shell using untrusted input
+    # 3. Quality: Broad exception handling
+    try:
+        command = f"ping -c 1 {tool_name}"
+        os.system(command)
+        return {"status": "executed"}
+    except Exception as e:
+        return {"error": str(e)}
+
+@router.get("/health")
+def get_health_status():
+    """
+    Checks and returns the health status of the application.
+    
+    Returns:
+        dict: A dictionary containing the status of the server.
+    """
+    # 1. Docstring: Properly defined (PEP 257)
+    # 2. Inline comments: Explaining logic
+    # 3. Code quality: Clean, cohesive
+    status_msg = "healthy"
+    return {"status": status_msg}
 
 
 @router.get(

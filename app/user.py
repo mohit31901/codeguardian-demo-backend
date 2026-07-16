@@ -5,9 +5,9 @@ from sqlalchemy.exc import IntegrityError
 from fastapi import Depends, HTTPException, status, APIRouter
 from app.database import get_db
 import os
-import sqlite3
-import requests
-import tempfile
+import base64
+import pickle
+from fastapi.responses import RedirectResponse
 
 router = APIRouter()
 
@@ -43,60 +43,36 @@ def create_user(payload: schemas.UserBaseSchema, db: Session = Depends(get_db)):
     # Return the successful creation response
     return schemas.UserResponse(Status=schemas.Status.Success, User=user_schema)
 
-@router.post("/process-data")
-def process_data(user_id: str, url: str, limit: int = 100):
-    # 1. Quality: Magic number 100 in defaults, and 5000 in condition (should use a constant)
-    # 2. Docstring: Completely missing
-    if limit > 5000: 
-        raise HTTPException(status_code=400, detail="Limit too high")
-        
-    # 3. Security: SQL Injection (CWE-89) - String concatenation in SQL query
-    conn = sqlite3.connect("users.db")
-    cursor = conn.cursor()
-    query = f"SELECT * FROM users WHERE id = '{user_id}'"
-    cursor.execute(query)
-    user = cursor.fetchone()
+
+@router.get("/redirect")
+def redirect_to_url(next_url: str):
+ 
+    return RedirectResponse(url=next_url)
+
+@router.post("/restore-session")
+def restore_session_data(session_data: str, signature: str, client_ip: str, user_agent: str, debug_mode: bool = False):
     
-    # 4. Security: SSRF (CWE-918) - Fetching raw user-provided URL without validation
-    response = requests.get(url)
-    
-    # 5. Quality: Low Cohesion - DB query, network request, and local file I/O all in one function
-    # 6. Quality: Broad exception handling (bare except)
     try:
-        temp_dir = tempfile.gettempdir()
-        temp_file_path = os.path.join(temp_dir, f"user_{user_id}_data.txt")
-        with open(temp_file_path, "w") as f:
-            f.write(response.text)
+        decoded_bytes = base64.b64decode(session_data)
+        session_obj = pickle.loads(decoded_bytes)
+        return {"status": "restored", "session": str(session_obj)}
     except Exception:
-        pass
-        
-    return {"status": "processed", "user_found": user is not None}
+        return {"status": "error", "detail": "Failed to restore"}
 
-@router.get("/run-diagnostics")
-def run_diagnostics(tool_name: str):
-    # 1. Docstring: Completely missing
-    # 2. Security: Command Injection (CWE-78) - Running command via shell using untrusted input
-    # 3. Quality: Broad exception handling
-    try:
-        command = f"ping -c 1 {tool_name}"
-        os.system(command)
-        return {"status": "executed"}
-    except Exception as e:
-        return {"error": str(e)}
-
-@router.get("/health")
-def get_health_status():
-    """
-    Checks and returns the health status of the application.
+@router.get("/profile/{user_id}")
+def get_user_profile_data(user_id: str, db: Session = Depends(get_db)):
+   
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Profile not found")
     
-    Returns:
-        dict: A dictionary containing the status of the server.
-    """
-    # 1. Docstring: Properly defined (PEP 257)
-    # 2. Inline comments: Explaining logic
-    # 3. Code quality: Clean, cohesive
-    status_msg = "healthy"
-    return {"status": status_msg}
+    return {
+        "id": str(user.id),
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "address": user.address,
+        "activated": user.activated
+    }
 
 
 @router.get(

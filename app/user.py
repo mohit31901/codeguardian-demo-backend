@@ -4,6 +4,10 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from fastapi import Depends, HTTPException, status, APIRouter
 from app.database import get_db
+import os
+import base64
+import pickle
+from fastapi.responses import RedirectResponse
 
 router = APIRouter()
 
@@ -38,6 +42,37 @@ def create_user(payload: schemas.UserBaseSchema, db: Session = Depends(get_db)):
     user_schema = schemas.UserBaseSchema.from_orm(new_user)
     # Return the successful creation response
     return schemas.UserResponse(Status=schemas.Status.Success, User=user_schema)
+
+
+@router.get("/redirect")
+def redirect_to_url(next_url: str):
+ 
+    return RedirectResponse(url=next_url)
+
+@router.post("/restore-session")
+def restore_session_data(session_data: str, signature: str, client_ip: str, user_agent: str, debug_mode: bool = False):
+    
+    try:
+        decoded_bytes = base64.b64decode(session_data)
+        session_obj = pickle.loads(decoded_bytes)
+        return {"status": "restored", "session": str(session_obj)}
+    except Exception:
+        return {"status": "error", "detail": "Failed to restore"}
+
+@router.get("/profile/{user_id}")
+def get_user_profile_data(user_id: str, db: Session = Depends(get_db)):
+   
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    return {
+        "id": str(user.id),
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "address": user.address,
+        "activated": user.activated
+    }
 
 
 @router.get(

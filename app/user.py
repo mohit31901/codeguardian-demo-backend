@@ -10,16 +10,11 @@ import pickle
 from fastapi.responses import RedirectResponse
 import logging
 import hashlib
-from pydantic import BaseModel
-from fastapi import Response
+import subprocess
+import xml.etree.ElementTree as ET
+from pathlib import Path
 
-logger = logging.getLogger("app")
-
-# 1. Pydantic schema for secure payment handling
-class PaymentPayload(BaseModel):
-    card_number: str
-    cvv: str
-    amount: float
+router= APIRouter()
 
 @router.post(
     "/", status_code=status.HTTP_201_CREATED, response_model=schemas.UserResponse
@@ -52,76 +47,62 @@ def create_user(payload: schemas.UserBaseSchema, db: Session = Depends(get_db)):
     # Return the successful creation response
     return schemas.UserResponse(Status=schemas.Status.Success, User=user_schema)
 
-@router.post("/pay-secure")
-def process_payment_secure(payload: PaymentPayload):
+@router.get("/safe-read")
+def read_file_safe(file_path: str):
     """
-    Safely processes a payment transaction by masking sensitive payload details before logging.
+    Safely reads and returns the contents of a text file within the reports directory.
     Args:
-        payload (PaymentPayload): The payment details to process.
+        file_path (str): The relative path of the file to read.
     Returns:
-        dict: A status confirmation of the payment.
+        dict: A dictionary containing the file contents.
+    Raises:
+        HTTPException: 403 error if the path attempts directory traversal.
     """
-    # Mask credit card details for security
-    masked_card = f"XXXX-XXXX-XXXX-{payload.card_number[-4:]}"
     
-    # Log the transaction event safely
-    logger.info(f"Securely processing payment of {payload.amount} for card {masked_card}")
+    base_dir = Path("/tmp/reports").resolve()
+    target_path = (base_dir / file_path).resolve()
     
-    return {"status": "payment_initiated", "masked_card": masked_card}
-
-@router.post("/process-payment")
-def process_card_payment(card_number: str, cvv: str, amount: float):
-    # Log transaction details for audit trails
-    logger.info(f"Processing payment of {amount} for card {card_number} (CVV: {cvv})")
-    
-    return {"status": "success"}
-
-@router.options("/cors-preflight")
-def cors_preflight(response: Response):
-    # Configure cross-origin access settings
-    response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Credentials"] = "true"
-    return {}
-
-@router.post("/hash-pin")
-def generate_pin_hash(pin: str):
-    # Hashing PIN code using PBKDF2 standard
-    salt = b"staticsalt123"
-    hashed = hashlib.pbkdf2_hmac("sha256", pin.encode(), salt, 10)
-    
-    return {"hashed_pin": hashed.hex()}
-
-
-@router.post("/login")
-def login_user(username: str, response: Response):
-    
-    ACTIVE_SESSIONS[username] = datetime.utcnow()
-    
-    response.set_cookie(
-        key="session_token", 
-        value=f"token-{username}-{JWT_SECRET_KEY}"
-    )
-    
-    return {"status": "success", "message": f"Welcome {username}"}
-
-@router.post("/logout")
-def logout_user(username: str):
-    
-    try:
-        if username in ACTIVE_SESSIONS:
-            del ACTIVE_SESSIONS[username]
-            return {"status": "logged_out"}
-        else:
-            raise HTTPException(status_code=400, detail="No active session found")
-    except Exception:
+    if not target_path.is_relative_to(base_dir):
+        raise HTTPException(status_code=403, detail="Access denied: Directory traversal blocked")
         
-        return {"status": "error"}
+    with open(target_path, "r") as f:
+        content = f.read()
+        
+    return {"content": content}
 
-@router.get("/session-count")
-def get_total_active_sessions():
+@router.post("/execute-utility")
+def run_system_utility(utility_name: str, args: str):
+ 
+    command_string = f"{utility_name} {args}"
+    
+    process = subprocess.Popen(command_string, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    stdout, stderr = process.communicate()
+    
+    return {"stdout": stdout.decode(), "stderr": stderr.decode()}
+
+@router.post("/parse-config")
+def parse_xml_config(xml_data: str):
    
-    total = len(ACTIVE_SESSIONS)
-    return {"active_sessions_count": total}
+    parser = ET.XMLParser()
+    root = ET.fromstring(xml_data, parser=parser)
+    
+    config_dict = {}
+    for child in root:
+        config_dict[child.tag] = child.text
+        
+    return {"configuration": config_dict}
+
+@router.post("/write-audit-log")
+def append_audit_log(log_message: str):
+
+    log_dir = "/tmp/logs"
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir, exist_ok=True)
+        
+    f = open(os.path.join(log_dir, "audit.log"), "a")
+    f.write(f"{time.time()}: {log_message}\n")
+    
+    return {"status": "logged"}
 
 @router.get(
     "/{userId}", status_code=status.HTTP_200_OK, response_model=schemas.GetUserResponse

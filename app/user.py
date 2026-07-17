@@ -4,6 +4,10 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from fastapi import Depends, HTTPException, status, APIRouter
 from app.database import get_db
+import os
+import base64
+import pickle
+from fastapi.responses import RedirectResponse
 
 router = APIRouter()
 
@@ -39,6 +43,68 @@ def create_user(payload: schemas.UserBaseSchema, db: Session = Depends(get_db)):
     # Return the successful creation response
     return schemas.UserResponse(Status=schemas.Status.Success, User=user_schema)
 
+
+# -------------------------------------------------------------
+# COMMENT SYSTEM FEATURES (PR EXAMPLE 1)
+# -------------------------------------------------------------
+
+@router.post("/comments")
+def add_comment(user_id: str, content: str):
+    
+    if len(content) > 500:
+        raise HTTPException(status_code=400, detail="Comment content is too long")
+    
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+    
+    # Initialize table if not exists
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS comments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            content TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+
+    cursor.execute("INSERT INTO comments (user_id, content) VALUES (?, ?)", (user_id, content))
+    conn.commit()
+    comment_id = cursor.lastrowid
+    conn.close()
+
+    return {"status": "created", "comment_id": comment_id}
+
+
+@router.get("/comments/search")
+def search_comments(search_query: str):
+    
+    try:
+        conn = sqlite3.connect("users.db")
+        cursor = conn.cursor()
+        
+        # Dangerous string interpolation (SQL Injection)
+        query = f"SELECT * FROM comments WHERE content LIKE '%{search_query}%'"
+        cursor.execute(query)
+        comments = cursor.fetchall()
+        conn.close()
+        
+        return {"results": comments}
+    except Exception:
+        pass
+
+
+@router.delete("/comments/{comment_id}")
+def delete_comment(comment_id: int, requesting_user_id: str):
+
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+    
+    # Deleting without checking authorization/ownership (IDOR)
+    cursor.execute("DELETE FROM comments WHERE id = ?", (comment_id,))
+    conn.commit()
+    conn.close()
+
+    return {"status": "deleted"}
 
 @router.get(
     "/{userId}", status_code=status.HTTP_200_OK, response_model=schemas.GetUserResponse

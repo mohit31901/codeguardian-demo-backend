@@ -10,6 +10,7 @@ import pickle
 from fastapi.responses import RedirectResponse
 import logging
 import hashlib
+from pydantic import BaseModel
 
 router= APIRouter()
 

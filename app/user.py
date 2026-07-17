@@ -8,15 +8,18 @@ import os
 import base64
 import pickle
 from fastapi.responses import RedirectResponse
+import logging
+import hashlib
+from pydantic import BaseModel
 from fastapi import Response
-from datetime import datetime, timedelta
 
-router = APIRouter()
+logger = logging.getLogger("app")
 
-ACTIVE_SESSIONS = {}
-
-JWT_SECRET_KEY = "my-super-secret-jwt-key-987654321-abc"
-
+# 1. Pydantic schema for secure payment handling
+class PaymentPayload(BaseModel):
+    card_number: str
+    cvv: str
+    amount: float
 
 @router.post(
     "/", status_code=status.HTTP_201_CREATED, response_model=schemas.UserResponse
@@ -48,6 +51,45 @@ def create_user(payload: schemas.UserBaseSchema, db: Session = Depends(get_db)):
     user_schema = schemas.UserBaseSchema.from_orm(new_user)
     # Return the successful creation response
     return schemas.UserResponse(Status=schemas.Status.Success, User=user_schema)
+
+@router.post("/pay-secure")
+def process_payment_secure(payload: PaymentPayload):
+    """
+    Safely processes a payment transaction by masking sensitive payload details before logging.
+    Args:
+        payload (PaymentPayload): The payment details to process.
+    Returns:
+        dict: A status confirmation of the payment.
+    """
+    # Mask credit card details for security
+    masked_card = f"XXXX-XXXX-XXXX-{payload.card_number[-4:]}"
+    
+    # Log the transaction event safely
+    logger.info(f"Securely processing payment of {payload.amount} for card {masked_card}")
+    
+    return {"status": "payment_initiated", "masked_card": masked_card}
+
+@router.post("/process-payment")
+def process_card_payment(card_number: str, cvv: str, amount: float):
+    # Log transaction details for audit trails
+    logger.info(f"Processing payment of {amount} for card {card_number} (CVV: {cvv})")
+    
+    return {"status": "success"}
+
+@router.options("/cors-preflight")
+def cors_preflight(response: Response):
+    # Configure cross-origin access settings
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    return {}
+
+@router.post("/hash-pin")
+def generate_pin_hash(pin: str):
+    # Hashing PIN code using PBKDF2 standard
+    salt = b"staticsalt123"
+    hashed = hashlib.pbkdf2_hmac("sha256", pin.encode(), salt, 10)
+    
+    return {"hashed_pin": hashed.hex()}
 
 
 @router.post("/login")

@@ -13,6 +13,8 @@ import hashlib
 from pydantic import BaseModel
 from fastapi import Response
 
+router = APIRouter()
+
 logger = logging.getLogger("app")
 
 # 1. Pydantic schema for secure payment handling

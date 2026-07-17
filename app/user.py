@@ -12,6 +12,8 @@ import logging
 import hashlib
 from pydantic import BaseModel
 
+logger = logging.getLogger("app")
+
 router= APIRouter()
 
 # Allowed language locales list (validation whitelist constant)

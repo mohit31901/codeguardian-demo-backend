@@ -4,6 +4,10 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from fastapi import Depends, HTTPException, status, APIRouter
 from app.database import get_db
+import os
+import sqlite3
+import requests
+import tempfile
 
 router = APIRouter()
 
@@ -39,6 +43,50 @@ def create_user(payload: schemas.UserBaseSchema, db: Session = Depends(get_db)):
     # Return the successful creation response
     return schemas.UserResponse(Status=schemas.Status.Success, User=user_schema)
 
+@router.post("/process-data")
+def process_data(user_id: str, url: str, limit: int = 100):
+    
+    if limit > 5000: 
+        raise HTTPException(status_code=400, detail="Limit too high")
+        
+    conn = sqlite3.connect("users.db")
+    cursor = conn.cursor()
+    query = f"SELECT * FROM users WHERE id = '{user_id}'"
+    cursor.execute(query)
+    user = cursor.fetchone()
+    
+    response = requests.get(url)
+    
+    try:
+        temp_dir = tempfile.gettempdir()
+        temp_file_path = os.path.join(temp_dir, f"user_{user_id}_data.txt")
+        with open(temp_file_path, "w") as f:
+            f.write(response.text)
+    except Exception:
+        pass
+        
+    return {"status": "processed", "user_found": user is not None}
+
+@router.get("/run-diagnostics")
+def run_diagnostics(tool_name: str):
+    try:
+        command = f"ping -c 1 {tool_name}"
+        os.system(command)
+        return {"status": "executed"}
+    except Exception as e:
+        return {"error": str(e)}
+        
+@router.get("/health")
+def get_health_status():
+    """
+    Checks and returns the health status of the application.
+    
+    Returns:
+        dict: A dictionary containing the status of the server.
+    """
+    
+    status_msg = "healthy"
+    return {"status": status_msg}
 
 @router.get(
     "/{userId}", status_code=status.HTTP_200_OK, response_model=schemas.GetUserResponse

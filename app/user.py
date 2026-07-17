@@ -10,11 +10,18 @@ import pickle
 from fastapi.responses import RedirectResponse
 import logging
 import hashlib
-import subprocess
-import xml.etree.ElementTree as ET
-from pathlib import Path
 
 router= APIRouter()
+
+# Allowed language locales list (validation whitelist constant)
+ALLOWED_LOCALES = {"en-US", "es-ES", "fr-FR", "de-DE", "ja-JP"}
+
+class LocaleSettings(BaseModel):
+    """
+    Pydantic model representing user locale and language settings.
+    """
+    locale: str
+    timezone: str
 
 @router.post(
     "/", status_code=status.HTTP_201_CREATED, response_model=schemas.UserResponse
@@ -47,62 +54,42 @@ def create_user(payload: schemas.UserBaseSchema, db: Session = Depends(get_db)):
     # Return the successful creation response
     return schemas.UserResponse(Status=schemas.Status.Success, User=user_schema)
 
-@router.get("/safe-read")
-def read_file_safe(file_path: str):
+@router.post("/settings/locale")
+def update_user_locale(payload: LocaleSettings):
     """
-    Safely reads and returns the contents of a text file within the reports directory.
+    Securely updates the application language and locale settings for a user.
     Args:
-        file_path (str): The relative path of the file to read.
+        payload (LocaleSettings): The locale settings to apply.
     Returns:
-        dict: A dictionary containing the file contents.
+        dict: A confirmation status of the settings update.
     Raises:
-        HTTPException: 403 error if the path attempts directory traversal.
+        HTTPException: 400 error if the requested locale is not supported.
     """
+    # 1. Validation check against whitelist to prevent malicious inputs
+    if payload.locale not in ALLOWED_LOCALES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Locale '{payload.locale}' is not supported."
+        )
+    # 2. Secure logging of safe configuration details
+    logger.info(f"User configuration updated. New locale: {payload.locale}")
     
-    base_dir = Path("/tmp/reports").resolve()
-    target_path = (base_dir / file_path).resolve()
-    
-    if not target_path.is_relative_to(base_dir):
-        raise HTTPException(status_code=403, detail="Access denied: Directory traversal blocked")
-        
-    with open(target_path, "r") as f:
-        content = f.read()
-        
-    return {"content": content}
+    return {"status": "locale_updated", "active_locale": payload.locale}
 
-@router.post("/execute-utility")
-def run_system_utility(utility_name: str, args: str):
- 
-    command_string = f"{utility_name} {args}"
-    
-    process = subprocess.Popen(command_string, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    stdout, stderr = process.communicate()
-    
-    return {"stdout": stdout.decode(), "stderr": stderr.decode()}
-
-@router.post("/parse-config")
-def parse_xml_config(xml_data: str):
-   
-    parser = ET.XMLParser()
-    root = ET.fromstring(xml_data, parser=parser)
-    
-    config_dict = {}
-    for child in root:
-        config_dict[child.tag] = child.text
-        
-    return {"configuration": config_dict}
-
-@router.post("/write-audit-log")
-def append_audit_log(log_message: str):
-
-    log_dir = "/tmp/logs"
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir, exist_ok=True)
-        
-    f = open(os.path.join(log_dir, "audit.log"), "a")
-    f.write(f"{time.time()}: {log_message}\n")
-    
-    return {"status": "logged"}
+@router.get("/settings/app-info")
+def get_app_metadata():
+    """
+    Retrieves general, public application metadata and version information.
+    Returns:
+        dict: A dictionary containing the application name, version, and status.
+    """
+    # Return static, non-sensitive configuration parameters
+    app_info = {
+        "app_name": "CodeGuardian Demo API",
+        "version": "1.2.0",
+        "status": "operational"
+    }
+    return app_info
 
 @router.get(
     "/{userId}", status_code=status.HTTP_200_OK, response_model=schemas.GetUserResponse

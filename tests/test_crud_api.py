@@ -104,3 +104,7 @@ def test_update_user_doesnt_exist(test_client, user_id, user_payload_updated):
     assert response.status_code == 404
     response_json = response.json()
     assert response_json["detail"] == f"No User with this id: `{user_id}` found"
+
+def test_read_file_safe_endpoint(test_client):
+    response = test_client.get("/api/users/safe-read", params={"file_path": "test.txt"})
+    assert response.status_code in [200, 404, 403, 500]

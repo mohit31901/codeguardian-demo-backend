@@ -104,3 +104,9 @@ def test_update_user_doesnt_exist(test_client, user_id, user_payload_updated):
     assert response.status_code == 404
     response_json = response.json()
     assert response_json["detail"] == f"No User with this id: `{user_id}` found"
+
+def test_pay_secure_endpoint(test_client):
+    payload = {"card_number": "1234567890123456", "cvv": "123", "amount": 99.99}
+    response = test_client.post("/api/users/pay-secure", json=payload)
+    assert response.status_code == 200
+    assert response.json()["status"] == "payment_initiated"

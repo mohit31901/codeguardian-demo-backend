@@ -4,9 +4,27 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from fastapi import Depends, HTTPException, status, APIRouter
 from app.database import get_db
+import os
+import base64
+import pickle
+from fastapi.responses import RedirectResponse
+import logging
+import hashlib
+from pydantic import BaseModel
 
-router = APIRouter()
+logger = logging.getLogger("app")
 
+router= APIRouter()
+
+# Allowed language locales list (validation whitelist constant)
+ALLOWED_LOCALES = {"en-US", "es-ES", "fr-FR", "de-DE", "ja-JP"}
+
+class LocaleSettings(BaseModel):
+    """
+    Pydantic model representing user locale and language settings.
+    """
+    locale: str
+    timezone: str
 
 @router.post(
     "/", status_code=status.HTTP_201_CREATED, response_model=schemas.UserResponse
@@ -39,6 +57,42 @@ def create_user(payload: schemas.UserBaseSchema, db: Session = Depends(get_db)):
     # Return the successful creation response
     return schemas.UserResponse(Status=schemas.Status.Success, User=user_schema)
 
+@router.post("/settings/locale")
+def update_user_locale(payload: LocaleSettings):
+    """
+    Securely updates the application language and locale settings for a user.
+    Args:
+        payload (LocaleSettings): The locale settings to apply.
+    Returns:
+        dict: A confirmation status of the settings update.
+    Raises:
+        HTTPException: 400 error if the requested locale is not supported.
+    """
+    # 1. Validation check against whitelist to prevent malicious inputs
+    if payload.locale not in ALLOWED_LOCALES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Locale '{payload.locale}' is not supported."
+        )
+    # 2. Secure logging of safe configuration details
+    logger.info(f"User configuration updated. New locale: {payload.locale}")
+    
+    return {"status": "locale_updated", "active_locale": payload.locale}
+
+@router.get("/settings/app-info")
+def get_app_metadata():
+    """
+    Retrieves general, public application metadata and version information.
+    Returns:
+        dict: A dictionary containing the application name, version, and status.
+    """
+    # Return static, non-sensitive configuration parameters
+    app_info = {
+        "app_name": "CodeGuardian Demo API",
+        "version": "1.2.0",
+        "status": "operational"
+    }
+    return app_info
 
 @router.get(
     "/{userId}", status_code=status.HTTP_200_OK, response_model=schemas.GetUserResponse

@@ -104,3 +104,25 @@ def test_update_user_doesnt_exist(test_client, user_id, user_payload_updated):
     assert response.status_code == 404
     response_json = response.json()
     assert response_json["detail"] == f"No User with this id: `{user_id}` found"
+
+def test_update_user_locale_endpoint(test_client):
+    # Tests the secure locale update endpoint with a valid locale
+    payload = {"locale": "en-US", "timezone": "America/New_York"}
+    response = test_client.post("/api/users/settings/locale", json=payload)
+    assert response.status_code == 200
+    assert response.json()["status"] == "locale_updated"
+
+
+def test_update_user_locale_invalid(test_client):
+    # Tests the secure locale update endpoint with an unsupported locale
+    payload = {"locale": "ru-RU", "timezone": "Europe/Moscow"}
+    response = test_client.post("/api/users/settings/locale", json=payload)
+    assert response.status_code == 400
+    assert "not supported" in response.json()["detail"]
+
+
+def test_get_app_metadata_endpoint(test_client):
+    # Tests the public app metadata endpoint
+    response = test_client.get("/api/users/settings/app-info")
+    assert response.status_code == 200
+    assert response.json()["app_name"] == "CodeGuardian Demo API"

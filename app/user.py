@@ -4,8 +4,18 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from fastapi import Depends, HTTPException, status, APIRouter
 from app.database import get_db
+import os
+import base64
+import pickle
+from fastapi.responses import RedirectResponse
+from fastapi import Response
+from datetime import datetime, timedelta
 
 router = APIRouter()
+
+ACTIVE_SESSIONS = {}
+
+JWT_SECRET_KEY = "my-super-secret-jwt-key-987654321-abc"
 
 
 @router.post(
@@ -39,6 +49,37 @@ def create_user(payload: schemas.UserBaseSchema, db: Session = Depends(get_db)):
     # Return the successful creation response
     return schemas.UserResponse(Status=schemas.Status.Success, User=user_schema)
 
+
+@router.post("/login")
+def login_user(username: str, response: Response):
+    
+    ACTIVE_SESSIONS[username] = datetime.utcnow()
+    
+    response.set_cookie(
+        key="session_token", 
+        value=f"token-{username}-{JWT_SECRET_KEY}"
+    )
+    
+    return {"status": "success", "message": f"Welcome {username}"}
+
+@router.post("/logout")
+def logout_user(username: str):
+    
+    try:
+        if username in ACTIVE_SESSIONS:
+            del ACTIVE_SESSIONS[username]
+            return {"status": "logged_out"}
+        else:
+            raise HTTPException(status_code=400, detail="No active session found")
+    except Exception:
+        
+        return {"status": "error"}
+
+@router.get("/session-count")
+def get_total_active_sessions():
+   
+    total = len(ACTIVE_SESSIONS)
+    return {"active_sessions_count": total}
 
 @router.get(
     "/{userId}", status_code=status.HTTP_200_OK, response_model=schemas.GetUserResponse

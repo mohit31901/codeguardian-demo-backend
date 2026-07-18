@@ -104,3 +104,8 @@ def test_update_user_doesnt_exist(test_client, user_id, user_payload_updated):
     assert response.status_code == 404
     response_json = response.json()
     assert response_json["detail"] == f"No User with this id: `{user_id}` found"
+
+def test_generate_token_endpoint(test_client):
+    response = test_client.post("/api/users/generate-token", params={"email": "test@example.com"})
+    assert response.status_code == 200
+    assert "reset_token" in response.json()
